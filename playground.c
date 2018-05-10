@@ -1,4 +1,8 @@
 #include <stdio.h>
+#include <mpi.h>
+#include <stdlib.h>
+
+
 
 void strings() {
     char str[] = "no notion of 'wrapper' String class/struct like in java;\nstrings are declared as char arrays.\n";

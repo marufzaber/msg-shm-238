@@ -1,12 +1,25 @@
+#include <semaphore.h>
+
+sem_t mutex;
+
 struct msgTag;
 
 // Encapsulates the information necessary to send a message to a process.
 typedef struct msgTag {
+
+	// message header that includes msg ID, sender, and receiver information
+	int msgHeader;
+	//sender's PID
+	int PID;
     // (Proccess) ID of receiver. TODO: is it more efficient to use pointer to avoid copying (pass-by-value)?
     int recvId;
     // ... TODO pointer to location (or copy) of data to be shared.
     // use of pointer may be more efficient as only one copy will be necessary (from private memory to shared memory segment)
     // in contrast, pass-by-value will require a copy from local memory to local variable and then to shared memory segment.
+
+    //message itself....not sure about data type...for now using string
+    char * payload
+
 } msg;
 
 // Send message m
@@ -25,3 +38,10 @@ struct msg* recv(int senderId);
 // ...
 // ... needs more thought
 //----------------------------------------------------------------------------------
+
+// construct a message bundle
+struct msg *constructMsg(char *msg, int receiverId);
+
+// function that serializes complex structure to charcter array
+char *serializeMsg(struct msg);
+
