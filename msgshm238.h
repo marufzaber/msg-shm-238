@@ -18,17 +18,17 @@ typedef struct msgTag {
     // in contrast, pass-by-value will require a copy from local memory to local variable and then to shared memory segment.
 
     //message itself....not sure about data type...for now using string
-    char * payload
+    char * payload;
 
 } msg;
 
 // Send message m
-void send(struct msg* m);
+void send(msg* m);
 
 // Receive a message from a sender with (process) ID == senderId.
 // Returns a pointer to the message to avoid overhead caused by copying imposed by pass-by-value.
 // TODO: Might actually be necessary to copy msg to local memory for safety purposes (as sender could potentially modify the shared memory segment later on)
-struct msg* recv(int senderId);
+msg* recv(int senderId);
 
 //----------------------------------------------------------------------------------
 // Brainstorm -> idea for how to implement blocking recv:
@@ -40,8 +40,8 @@ struct msg* recv(int senderId);
 //----------------------------------------------------------------------------------
 
 // construct a message bundle
-struct msg *constructMsg(char *msg, int receiverId);
+msg *constructMsg(char *msg, int receiverId);
 
 // function that serializes complex structure to charcter array
-char *serializeMsg(struct msg);
+char *serializeMsg(msg);
 

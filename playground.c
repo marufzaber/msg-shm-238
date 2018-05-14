@@ -1,7 +1,7 @@
 #include <stdio.h>
-#include <mpi.h>
+//#include <mpi.h>
 #include <stdlib.h>
-
+#include "msgshm238.h"
 
 
 void strings() {
@@ -15,6 +15,8 @@ int main(void) {
         printf("negative numbers evaluate to true\n");
     }
     strings();
+    msg someMsg;
+    send(&someMsg);
     return 0;
 }
 
