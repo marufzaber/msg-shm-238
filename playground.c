@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include "msgshm238.h"
 
-
 void strings() {
     char str[] = "no notion of 'wrapper' String class/struct like in java;\nstrings are declared as char arrays.\n";
     printf("%s", str);
@@ -15,8 +14,9 @@ int main(void) {
         printf("negative numbers evaluate to true\n");
     }
     strings();
-    msg someMsg;
-    send(&someMsg);
+    msg* someMsg = constructMsg("hello", 42);
+    send(someMsg);
+    send(someMsg);
     return 0;
 }
 

@@ -9,10 +9,10 @@ typedef struct msgTag {
 
 	// message header that includes msg ID, sender, and receiver information
 	int msgHeader;
-	//sender's PID
-	int PID;
+	//sender's (process) ID
+	int senderId;
     // (Proccess) ID of receiver. TODO: is it more efficient to use pointer to avoid copying (pass-by-value)?
-    int recvId;
+    int rcvrId;
     // ... TODO pointer to location (or copy) of data to be shared.
     // use of pointer may be more efficient as only one copy will be necessary (from private memory to shared memory segment)
     // in contrast, pass-by-value will require a copy from local memory to local variable and then to shared memory segment.
