@@ -37,7 +37,8 @@ typedef struct shm_dictionary_entry {
      * In addition, we must prepend the concatenation of the two IDs with a slash as per the convention specified in the man pages (hence we need the +1 to allow space for an extra char).
      * See http://man7.org/linux/man-pages/man3/shm_open.3.html
      */
-    char id[2*INT_AS_STR_MAX_CHARS+1];
+//    char id[2*INT_AS_STR_MAX_CHARS+1];
+    char *id;
     /**
      * Poiner to start of shared memory segment.
      */
@@ -54,25 +55,32 @@ shm_dict_entry *shm_dict = NULL;
 
 
 void send(msg* m) {
-    printf("send(msg* m) invoked by caller with pid=%d; m->senderId=%d m->rcvrId=%d m->payload='%s'\n", getpid(), m->senderId, m->rcvrId, m->payload);
-    printf("cached pid=%d\n", senderId);
-    
-    shm_dict_entry *entry;
-    // construct the key by concatenating sender and receiver IDs
-    char identifier[INT_AS_STR_MAX_CHARS];
-    sprintf(identifier, "/%d%d", m->senderId, m->rcvrId);
-    entry = (shm_dict_entry*) malloc(sizeof *entry);
+    // ---- ANSI C requires variables to be declared at the start of a block ---
     // File descriptor for the shared memory segment.
     int fd;
+    // Identifier for the shared memory segment we are looking up.
+    char *identifier = malloc(2*INT_AS_STR_MAX_CHARS+1);
+    // Entry in map for memory segment.
+    shm_dict_entry *entry = malloc(sizeof(*entry));
+    // -------------------------------------------------------------------------
+    printf("send(msg* m) invoked by caller with pid=%d; m->senderId=%d m->rcvrId=%d m->payload='%s'\n", getpid(), m->senderId, m->rcvrId, m->payload);
+    printf("cached pid=%d\n", senderId);
+    // construct the key by concatenating sender and receiver IDs
+    sprintf(identifier, "/%d%d", m->senderId, m->rcvrId);
     // Check if there's already an entry (and thereby already an open shared memory segment).
     HASH_FIND_STR(shm_dict, identifier, entry);
     if(entry == NULL) {
         printf("No entry found for '%s'; creating new shared memory segment...\n", identifier);
-        /* TODO create shared memory segment and insert in map */
+        // Create and open new shared memory segment.
         fd = shm_open(identifier, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
         if (fd == -1) {
             printf("Error creating new shared memory segment.\n");
+            // TODO: respond to error.
         } else {
+            char *addr;
+            // Apparently need to reallocate here in order to avoid segmentation fault. Q: where to free what we allocated earlier?
+            free(entry);
+            entry = malloc(sizeof(shm_dict_entry));
             printf("Successfully created new shared memory segment with fd=%d\n", fd);
             /*
              * New shared memory segments have length 0, so need to size it.
@@ -85,27 +93,21 @@ void send(msg* m) {
              */
             ftruncate(fd, sizeof(m));
             // Map shared memory segment into own address space.
-            char *addr;
-            printf("before mmap\n");
             addr = mmap(NULL, sizeof(m), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-            // Apparently fd is no longer needed. We unlink using the identifer.
-            printf("before close\n");
+            // Apparently fd is no longer needed. We can later unlink the shared memory segment using the identifer.
             close(fd);
-            // Update map with new entry.
-            printf("before strncpy\n");
-            strncpy(entry->id, identifier, 2*INT_AS_STR_MAX_CHARS+1);
-            printf("after strncpy\n");
+            // Update map with new entry...
+            // Must allocate size for the shared memory segment identifier separetely as it is a pointer.
+            entry->id = malloc(sizeof(*identifier)); // Q malloc needed here? Runs fine w/o it.
+            entry->id = identifier;
+            entry->addr = malloc(sizeof(*addr)); // Q malloc needed here? Runs fine w/o it.
             entry->addr = addr;
-//            *entry = { .id = identifier, .addr = addr };
-//            shm_dict_entry dummy = { .id = identifier, .addr = addr };
-            printf("before adding to hashmap\n");
             HASH_ADD_STR(shm_dict, id, entry);
         }
     } else {
         /* TODO shared memory segment already already present, use it (access it using 'entry') */
         printf("Found entry in hash map for '%s'\n", identifier);
     }
-    
 }
 
 msg* constructMsg(char *content, int receiverId) {
