@@ -9,11 +9,9 @@ void strings() {
 }
 
 int main(void) {
-    printf("Hello World!\n");
     if (-42) {
-        printf("negative numbers evaluate to true\n");
+//        printf("negative numbers evaluate to true\n");
     }
-    strings();
     msg* someMsg = constructMsg("hello", 42);
     send(someMsg);
     send(someMsg);
