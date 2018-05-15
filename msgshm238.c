@@ -6,31 +6,13 @@
 #include <fcntl.h> /* O_* constnats */
 #include <sys/stat.h> /* mode constants */
 #include <sys/mman.h>
-#include <limits.h>
 #include "uthash.h" /* Hash table provided by https://troydhanson.github.io/uthash/ */
 
-#define PO10_LIMIT (INT_MAX/10)
-/**
- * For finding the string length of an integer.
- * Credit goes to: https://stackoverflow.com/a/4143288/1214974
- */
-int nDigits(int i)
-{
-    int n,po10;
-    if (i < 0) i = -i;
-    n=1;
-    po10=10;
-    while(i>=po10)
-    {
-        n++;
-        if (po10 > PO10_LIMIT) break;
-        po10*=10;
-    }
-    return n;
-}
+#define INT_AS_STR_MAX_CHARS 3*sizeof(int)+2 // Max number of chars needed to convert an int to a string.
 
 
 /*
+ * [Note to self]
  * Useful tutorial on POSIX shared memory:
  * http://man7.org/training/download/posix_shm_slides.pdf
  */
@@ -47,7 +29,7 @@ pid_t senderId = -42;
  */
 typedef struct shm_dictionary_entry {
     /* For now, the ID is the concatenation of sender and the receiver ID */
-    char *id;
+    char id[2*INT_AS_STR_MAX_CHARS];
     /* Used by uthash for internal bookkeeping; must be present. */
     UT_hash_handle hh;
 } shm_dict_entry;
@@ -60,22 +42,22 @@ shm_dict_entry *shm_dict = NULL;
 
 
 void send(msg* m) {
+    printf("send(msg* m) invoked by caller with pid=%d; m->senderId=%d m->rcvrId=%d m->payload='%s'\n", getpid(), m->senderId, m->rcvrId, m->payload);
+    printf("cached pid=%d\n", senderId);
+    
     shm_dict_entry *entry;
-    // construct the key by concatenating sender and receiver IDs; TODO: faster/better way to do this?
-    int str_len = nDigits(m->senderId) + nDigits(m->rcvrId);
-    char identifier[str_len];
+    // construct the key by concatenating sender and receiver IDs
+    char identifier[INT_AS_STR_MAX_CHARS];
     sprintf(identifier, "%d%d", m->senderId, m->rcvrId);
     // TODO: need to account for str_len when doing malloc for struct?
     entry = (shm_dict_entry*) malloc(sizeof *entry);
+    // Check if there's already an entry (and thereby already an open shared memory segment).
     HASH_FIND_STR(shm_dict, identifier, entry);
     if(entry == NULL) {
         printf("no entry found for '%s'\n", identifier);
         /* TODO create shared memory segment and insert in map */
     }
     /* TODO shared memory segment already already present, use it (access it using 'entry') */
-    printf("send(msg* m) invoked; m->senderId=%d m->rcvrId=%d m->payload='%s'\n", m->senderId, m->rcvrId, m->payload);
-    printf("callers pid=%d\n", getpid());
-    printf("cached pid=%d\n", senderId);
 }
 
 msg* constructMsg(char *content, int receiverId) {
