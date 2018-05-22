@@ -1,7 +1,8 @@
 #include<stdlib.h>
+#include<string.h>
 #include<stdio.h>
 
-#define INITIAL_SIZE 32
+#define BYTE_SIZE 32
 
 struct Buffer {
     void *data;
@@ -12,8 +13,8 @@ struct Buffer {
 struct Buffer *new_buffer() {
     struct Buffer *b = malloc(sizeof(Buffer));
 
-    b->data = malloc(INITIAL_SIZE);
-    b->size = INITIAL_SIZE;
+    b->data = malloc(BYTE_SIZE);
+    b->size = BYTE_SIZE;
     b->next = 0;
     return b;
 }
@@ -21,8 +22,8 @@ struct Buffer *new_buffer() {
 void reserve_space(Buffer *b, size_t bytes) {
     if((b->next + bytes) > b->size) {
         /* double size to enforce O(lg N) reallocs */
-        b->data = realloc(b->data, b->size * 2);
-        b->size *= 2;
+        b->data = realloc(b->data, b->size + bytes);
+        b->size += bytes;
     }
 }
 
