@@ -40,6 +40,6 @@ void serialize_string(char *x, Buffer *b) {
     /* assume int == long; how can this be done better? */
     x = htonl(x);
     reserve_space(b, (strlen(x) + 1 ) * sizeof(char));
-    memcpy(((char *)b->data) + b->next, &x, sizeof(int));
+    memcpy(((char *)b->data) + b->next, x, (strlen(x) + 1 ) * sizeof(char));
     b->next += sizeof(int);
 }
