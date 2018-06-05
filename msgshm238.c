@@ -43,7 +43,7 @@ typedef struct shm_dictionary_entry {
     /**
      * Pointer to start of shared memory segment.
      */
-    char *addr;
+    void *addr;
     /* Used by uthash for internal bookkeeping; must be present. */
     UT_hash_handle hh;
 } shm_dict_entry;
@@ -58,15 +58,48 @@ void attempt_lock () {
     int res = atomic_compare_exchange_weak(&(int *)addr, 0, senderId);
 }
 
-void put_msg(msg * m, shm_dict_entry shm_ptr) {
-    while(!atomic_compare_exchange_weak(/* get value of shm_segment_header->pidOfCurrentAccesor */, 0, senderId)) {
-        // Spin lock -- wait for exclusive access.
-    }
+void put_msg(msg * m, shm_dict_entry * shm_ptr) {
+    // Spin lock -- wait for exclusive access.
+    while(!atomic_compare_exchange_weak(/* get value of shm_segment_header->pidOfCurrentAccesor */, 0, senderId));
+    
+    // Read the header which resides at the front of the shared memory segment.
+    shm_header = &(shm_header *)shm_ptr->addr; // TODO fix this.
+    
+    start =  == NULL ? shm_ptr
+    
+    memcpy(start, m /* plus its payload - how? */, sizeof(m /* plus its payload - how? */));
+    
+    
     // Unlock.
     // Note that loop is necessary even though we already hold the lock as the _weak version is allowed to fail spuriously (see doc).
-    while(atomic_compare_exchange_weak(/* get value of shm_segment_header->pidOfCurrentAccesor */, senderId, 0)) {
-        
-    }
+    while(atomic_compare_exchange_weak(/* get value of shm_segment_header->pidOfCurrentAccesor */, senderId, 0));
+}
+
+void init_shm_header(shm_dict_entry * shm_ptr) {
+    // TODO should encapsulate this initialization in inter process mutexes to avoid two processes initializing the header concurrently.
+    
+    // Init header of shm segment
+    shm_header * header = malloc(sizeof(*header));
+    header->msg_count = 0;
+    header->pidOfCurrent = -1;
+    header->head = NULL;
+    header->tail = NULL;
+    // Add the header to start of shared memory segment.
+    memcpy(shm_ptr->addr, (void *) header, sizeof(header)); // + length of head and tail pointers?
+    
+    
+//    memory
+    shm_ptr->addr->tail->next = memory
+    
+    shm_ptr->addr->tail = shm_ptr->addr->tail->next
+    
+    
+    [ shm_header {mem_block_head} {men_block_tail}    ]
+     /*
+      A ---- header to shared memory
+      B ---- shm_header
+    
+    
 }
 
 void send(msg* m) {
@@ -93,7 +126,7 @@ void send(msg* m) {
             // TODO: respond to error.
             return; // TODO return error code
         } else {
-            char *addr;
+            void *addr;
             // Apparently need to reallocate here in order to avoid segmentation fault. Q: where to free what we allocated earlier?
             free(entry);
             entry = malloc(sizeof(shm_dict_entry));
@@ -119,6 +152,8 @@ void send(msg* m) {
             entry->addr = malloc(sizeof(*addr)); // Q malloc needed here? Runs fine w/o it.
             entry->addr = addr;
             HASH_ADD_STR(shm_dict, id, entry);
+            // Setup shm segment header
+            init_shm_header(entry);
         }
     }
     // Reinit entry in case it was null above -- TODO necessary as we init entry during the if block?

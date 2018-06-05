@@ -9,7 +9,7 @@ struct Buffer;
 
 // Encapsulates the information necessary to send a message to a process.
 typedef struct Buffer {
-	unsigned int mem_count; 
+	unsigned int msg_count;
 
 	pid_t pIdOfCurrent
 
@@ -17,12 +17,15 @@ typedef struct Buffer {
     mem_block *tail;
 
 
-} shr_mem;
+} shm_header;
 
 typedef struct Memory
 {
-        msg message;
-        struct mem_block *ptr;
+        msg * message;
+        struct mem_block *next;
 }mem_block;
 
- 
+[shm_header ... msg ]
+
+shm_header [ms count, .....,head, tail]
+                             msg -- > msg 0--->msg
