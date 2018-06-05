@@ -2,33 +2,87 @@
 
 sem_t mutex;
 
-struct msgTag;
+// TODO update to proper size, for now keep low so that we can experiment with breaking long payloads into multiple messages
+#define MAX_PAYLOAD_SIZE 32
 
-// Encapsulates the information necessary to send a message to a process.
+// ---------------------------------------------------------------
+// Begin old pointer-based approach
+
+//struct msgTag;
+
+//// Encapsulates the information necessary to send a message to a process.
+//typedef struct msgTag {
+//
+//    // message header that includes msg ID, sender, and receiver information
+//    int msgHeader;
+//    //sender's (process) ID
+//    int senderId;
+//    // (Proccess) ID of receiver. TODO: is it more efficient to use pointer to avoid copying (pass-by-value)?
+//    int rcvrId;
+//    // ... TODO pointer to location (or copy) of data to be shared.
+//    // use of pointer may be more efficient as only one copy will be necessary (from private memory to shared memory segment)
+//    // in contrast, pass-by-value will require a copy from local memory to local variable and then to shared memory segment.
+//
+//    //message itself....not sure about data type...for now using string
+//    char * payload;
+//    // next
+//} msg;
+
+//// Receive a message from a sender with (process) ID == senderId.
+//// Returns a pointer to the message to avoid overhead caused by copying imposed by pass-by-value.
+//// TODO: Might actually be necessary to copy msg to local memory for safety purposes (as sender could potentially modify the shared memory segment later on)
+//msg* recv(int senderId);
+
+//// Send message m
+//void send(msg* m);
+
+// construct a message bundle
+//msg *constructMsg(char *msg, int receiverId);
+
+//// function that serializes complex structure to charcter array
+//char *serializeMsg(msg);
+
+// End old pointer-based approach
+// ---------------------------------------------------------------
+
+// ---------------------------------------------------------------
+// Begin new copy- and fixed size-based approach
+
 typedef struct msgTag {
-
-	// message header that includes msg ID, sender, and receiver information
-	int msgHeader;
-	//sender's (process) ID
-	int senderId;
+    
+    // message header that includes msg ID, sender, and receiver information
+    int msgHeader;
+    //sender's (process) ID
+    int senderId;
     // (Proccess) ID of receiver. TODO: is it more efficient to use pointer to avoid copying (pass-by-value)?
     int rcvrId;
     // ... TODO pointer to location (or copy) of data to be shared.
     // use of pointer may be more efficient as only one copy will be necessary (from private memory to shared memory segment)
     // in contrast, pass-by-value will require a copy from local memory to local variable and then to shared memory segment.
-
+    
     //message itself....not sure about data type...for now using string
-    char * payload;
+    char payload[MAX_PAYLOAD_SIZE];
     // next
 } msg;
 
-// Send message m
-void send(msg* m);
 
-// Receive a message from a sender with (process) ID == senderId.
-// Returns a pointer to the message to avoid overhead caused by copying imposed by pass-by-value.
-// TODO: Might actually be necessary to copy msg to local memory for safety purposes (as sender could potentially modify the shared memory segment later on)
-msg* recv(int senderId);
+/**
+ * Send message with contents pointed to by 'payload' to process with pid 'receiverId'.
+ */
+void send(char * payload, int receiverId);
+
+/**
+ * Read (receive) a message sent by process with pid 'senderId'.
+ */
+msg recv(int senderId);
+
+// End new copy- and fixed size-based approach
+// ---------------------------------------------------------------
+
+
+
+// ---------------------------------------------------------------
+// Begin notes
 
 //----------------------------------------------------------------------------------
 // Brainstorm -> idea for how to implement blocking recv:
@@ -39,16 +93,15 @@ msg* recv(int senderId);
 // ... needs more thought
 //----------------------------------------------------------------------------------
 
-// construct a message bundle
-msg *constructMsg(char *msg, int receiverId);
 
-// function that serializes complex structure to charcter array
-char *serializeMsg(msg);
 
+// data structure in shared memory segment
 // [ {messagesNum, head, tail, pIdOfCurrentAccessor} msg, msg, msg, msg, msg  ...  ]
 
 
-// a b c d
-// a b => shm1 ab
-// a d => shm2 ad
+//    shm_ptr->addr->tail->next = memory
+//    shm_ptr->addr->tail = shm_ptr->addr->tail->next
+//    [ shm_header {mem_block_head} {men_block_tail}    ]
 
+// End notes
+// ---------------------------------------------------------------

@@ -7,14 +7,19 @@
 
 struct Buffer;
 
-// Encapsulates the information necessary to send a message to a process.
+// Header used for structuring data in shm segment.
 typedef struct Buffer {
 	unsigned int msg_count;
 
 	pid_t pIdOfCurrent
 
-    mem_block *head;
-    mem_block *tail;
+//    mem_block *head;
+//    mem_block *tail;
+    
+    // Index of most recently added message.
+    int newest;
+    // Index of least recently added message.
+    int oldest;
 
 
 } shm_header;
@@ -25,7 +30,7 @@ typedef struct Memory
         struct mem_block *next;
 }mem_block;
 
-[shm_header ... msg ]
+//[shm_header ... msg ]
 
-shm_header [ms count, .....,head, tail]
+//shm_header [ms count, .....,head, tail]
                              msg -- > msg 0--->msg
