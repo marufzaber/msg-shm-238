@@ -8,6 +8,7 @@
 #include <sys/stat.h> /* mode constants */
 #include <sys/mman.h>
 #include "uthash.h" /* Hash table provided by https://troydhanson.github.io/uthash/ */
+#include <stdatomic.h>
 
 /**
  * Max number of chars needed to convert an int to a string.
@@ -40,7 +41,7 @@ typedef struct shm_dictionary_entry {
 //    char id[2*INT_AS_STR_MAX_CHARS+1];
     char *id;
     /**
-     * Poiner to start of shared memory segment.
+     * Pointer to start of shared memory segment.
      */
     char *addr;
     /* Used by uthash for internal bookkeeping; must be present. */
@@ -52,7 +53,21 @@ typedef struct shm_dictionary_entry {
  */
 shm_dict_entry *shm_dict = NULL;
 
+void attempt_lock () {
+//    atomic_compare_exchange_weak(object, expected, desired)
+    int res = atomic_compare_exchange_weak(&(int *)addr, 0, senderId);
+}
 
+void put_msg(msg * m, shm_dict_entry shm_ptr) {
+    while(!atomic_compare_exchange_weak(/* get value of shm_segment_header->pidOfCurrentAccesor */, 0, senderId)) {
+        // Spin lock -- wait for exclusive access.
+    }
+    // Unlock.
+    // Note that loop is necessary even though we already hold the lock as the _weak version is allowed to fail spuriously (see doc).
+    while(atomic_compare_exchange_weak(/* get value of shm_segment_header->pidOfCurrentAccesor */, senderId, 0)) {
+        
+    }
+}
 
 void send(msg* m) {
     // ---- ANSI C requires variables to be declared at the start of a block ---
@@ -76,6 +91,7 @@ void send(msg* m) {
         if (fd == -1) {
             printf("Error creating new shared memory segment.\n");
             // TODO: respond to error.
+            return; // TODO return error code
         } else {
             char *addr;
             // Apparently need to reallocate here in order to avoid segmentation fault. Q: where to free what we allocated earlier?
@@ -104,10 +120,15 @@ void send(msg* m) {
             entry->addr = addr;
             HASH_ADD_STR(shm_dict, id, entry);
         }
-    } else {
-        /* TODO shared memory segment already already present, use it (access it using 'entry') */
-        printf("Found entry in hash map for '%s'\n", identifier);
     }
+    // Reinit entry in case it was null above -- TODO necessary as we init entry during the if block?
+    HASH_FIND_STR(shm_dict, id, entry);
+    put_msg(m, entry);
+    
+//    else {
+//        /* TODO shared memory segment already already present, use it (access it using 'entry') */
+//        printf("Found entry in hash map for '%s'\n", identifier);
+//    }
 }
 
 msg* constructMsg(char *content, int receiverId) {

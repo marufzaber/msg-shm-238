@@ -19,7 +19,7 @@ typedef struct msgTag {
 
     //message itself....not sure about data type...for now using string
     char * payload;
-
+    // next
 } msg;
 
 // Send message m
@@ -44,4 +44,11 @@ msg *constructMsg(char *msg, int receiverId);
 
 // function that serializes complex structure to charcter array
 char *serializeMsg(msg);
+
+// [ {messagesNum, head, tail, pIdOfCurrentAccessor} msg, msg, msg, msg, msg  ...  ]
+
+
+// a b c d
+// a b => shm1 ab
+// a d => shm2 ad
 
