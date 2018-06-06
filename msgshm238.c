@@ -9,6 +9,7 @@
 #include <sys/mman.h>
 #include "uthash.h" /* Hash table provided by https://troydhanson.github.io/uthash/ */
 #include <stdatomic.h>
+#include <sys/ipc.h>
 
 /**
  * Max number of chars needed to convert an int to a string.
@@ -261,10 +262,23 @@ msg *recv(int senderId){
     shm_dict_entry *entry = malloc(sizeof(*entry));
     HASH_FIND_STR(shm_dict, identifier, entry);
 
-     int ShmID = shmget(identifier, sizeof(shm_header) + sizeof(char *) * BUFFER_MSG_CAPACITY, SHM_R|SHM_W);
-     if (ShmID < 0) {
-          printf("*** shmget error (client) ***\n");
-          exit(1);
+    // If a shared memory segment already exists with this key, return it; otherwise create a new one for this key and return that.
+     int ShmID = shmget(identifier, sizeof(shm_header) + sizeof(msg) * BUFFER_MSG_CAPACITY, IPC_CREAT);
+     if (ShmID >0) {
+          printf("shared memory exist and found \n");
+          char *data;
+
+          data = shmat(ShmID, (void *)0, 0);
+          if (data == NULL)
+                perror("shmat");
+          else
+              printf("%s",data);
+
+     }
+     else{
+          printf("shared memory does not exist\n");
+          //MAYBE WE ALLOCATE NEW MEMORY BLOCK?
+
      }
 
 //    if(entry == NULL) {
