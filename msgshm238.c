@@ -222,56 +222,71 @@ void init_shm_header(shm_dict_entry * shm_ptr) {
 //    entry->addr = addr;
 //}
 
-void send(char * payload, int receiverId) {
+int create_shared_mem_segment(int pid1, int pid2) {
     // File descriptor for the shared memory segment.
     int fd;
-    // -------------------------------------------------------------------------
+    // Construct identifier for new shared mem segment.
+    char * identifier = get_shm_id_for_processes(pid1, pid2);
+    printf("Creating new shared memory segment with id=%s...\n", identifier);
+    // Create and open new shared memory segment.
+    fd = shm_open(identifier, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd == -1) {
+        printf("Error creating new shared memory segment.\n");
+        // Return error code letting caller now that segment could not be created.
+        return -1;
+    } else {
+        // Pointer to starting location of new shared memory segment.
+        void *addr;
+        printf("Successfully created new shared memory segment with fd=%d\n", fd);
+        // Init shm_dict_entry for created shm segment.
+        shm_dict_entry* entry = malloc(sizeof(shm_dict_entry));
+        if (entry == NULL) {
+            // Out of memory. Return error code to let caller know.
+            // TODO should close the shared memory segment here...
+            return -2;
+        }
+        /*
+         * New shared memory segments have length 0, so need to size it.
+         * The size chosen here will be the size of our message queue/buffer.
+         * Allow room for the header and a fixed number of messages.
+         */
+        size_t shm_segment_size = sizeof(shm_header) + sizeof(msg) * BUFFER_MSG_CAPACITY;
+        ftruncate(fd, shm_segment_size);
+        // Map shared memory segment into own address space.
+        addr = mmap(NULL, shm_segment_size , PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        // fd is no longer needed - we can unlink the shared memory segment using the identifer.
+        close(fd);
+        // Set fields in new entry and update map with new entry.
+        entry->id = identifier;
+        entry->addr = addr;
+        // The second parameter ('id') is the name of the shm_dict_entry field that should be used as key.
+        HASH_ADD_STR(shm_dict, id, entry);
+        // Setup shm segment header.
+        init_shm_header(entry);
+        // Return 0 to indicate success.
+        return 0;
+    }
+}
+
+void send(char * payload, int receiverId) {
+    // Refresh cached pid if needed.
     senderId = get_invoker_pid();
     printf("send(char *, int) invoked by caller with pid=%d; rcvrId=%d; payload='%s'\n", senderId, receiverId, payload);
     // Locate the shared memory segment if one already exists by querying the hash table.
     shm_dict_entry *entry = find_shm_dict_entry_for_shm_segment(senderId, receiverId);
     if(entry == NULL) {
-        char * identifier = get_shm_id_for_processes(senderId, receiverId);
-        printf("No entry found for '%s'; creating new shared memory segment...\n", identifier);
-        // Create and open new shared memory segment.
-        fd = shm_open(identifier, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
-        if (fd == -1) {
-            printf("Error creating new shared memory segment.\n");
-            // TODO: respond to error.
-            return; // TODO return error code
-        } else {
-            void *addr;
-            printf("Successfully created new shared memory segment with fd=%d\n", fd);
-            // Apparently need to reallocate here in order to avoid segmentation fault. Q: where to free what we allocated earlier?
-            free(entry);
-            // Init shm_dict_entry for created shm segment.
-            entry = malloc(sizeof(shm_dict_entry));
-            if (entry == NULL) {
-                // TODO error handling.
-                printf("send(char *, int) out of memory when re-allocating memory for shm_dict_entry\n");
-                // TODO free payload or leave that to caller?
-                return;
-            }
-            /*
-             * New shared memory segments have length 0, so need to size it.
-             * Essentially the size chosen here will be the size of our message queue/buffer.
-             * We've made it hard for ourselves by choosing a variable size content length of messages (the payload pointer).
-             */
-            size_t shm_segment_size = sizeof(shm_header) + sizeof(msg) * BUFFER_MSG_CAPACITY;
-            ftruncate(fd, shm_segment_size);
-            // Map shared memory segment into own address space.
-            addr = mmap(NULL, shm_segment_size , PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-            // Apparently fd is no longer needed. We can later unlink the shared memory segment using the identifer.
-            close(fd);
-            // Set fields in new entry and update map with new entry.
-            entry->id = identifier;
-            entry->addr = addr;
-            // Note that the second parameter (in this case 'id') is the name of the shm_dict_entry field that should be used as key.
-            HASH_ADD_STR(shm_dict, id, entry);
-            // Setup shm segment header.
-            init_shm_header(entry);
+        // No existing shared memory segment, so set one up.
+        int created = create_shared_mem_segment(senderId, receiverId);
+        if (0 != created) {
+            // TODO error handling
+            printf("[ERROR] create_shared_mem_segment(int,int) returned error code %d. Memory segment not created.\n", created);
+            return;
         }
+        // As the shm segment has been created, there should now be a corresponding entry in the map.
+        // Fetch it as we need it for put_msg below.
+        entry = find_shm_dict_entry_for_shm_segment(senderId, receiverId);
     }
+    // Finally place the message in the shared memory segment.
     put_msg(entry, receiverId, payload);
 }
 
