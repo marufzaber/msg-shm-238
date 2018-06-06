@@ -81,6 +81,25 @@ shm_dict_entry *shm_dict = NULL;
 
 //    int res = atomic_compare_exchange_weak(&(int *)addr, 0, senderId);
 
+/**
+ * Utility function for initializing a pointer that points to a value that is the identifier of the shared
+ * memory segment that processes with pid1 and pid2 use to communicate. By setting the value here, we make
+ * sure that the shared memory id naming scheme can be changed in a single place (in case we want to change
+ * the naming scheme later on). Note that it is up to the caller to free the returned pointer.
+ *
+ * Current naming scheme: the concatenation of the two pids separated by a delimiter (an underscore); the
+ * lowest pid goes first (this retains consistency for the id, regardless of this function being
+ * invoked from the send or recv function).
+ */
+char * get_shm_id_for_processes(int pid1, int pid2) {
+    char * shm_id = malloc(2*INT_AS_STR_MAX_CHARS+1);
+    if (pid1 < pid2) {
+        sprintf(identifier, "/%d_%d", pid1, pid2);
+    } else {
+        sprintf(identifier, "/%d_%d", pid2, pid1);
+    }
+    return shm_id;
+}
 
 int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
     int expected;
