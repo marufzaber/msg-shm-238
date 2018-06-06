@@ -34,7 +34,7 @@
  * Apparently the library did provide automatic caching of the pid in some versions, but this caused bugs.
  * See http://man7.org/linux/man-pages/man2/getpid.2.html
  */
-pid_t senderId = -42;
+pid_t invoker_pid = -42;
 
 /**
  * Value of shm_header.pIdOfCurrent when shared memory segment is unlocked.
@@ -43,12 +43,12 @@ const pid_t SHM_SEGMENT_UNLOCKED = -1;
 
 pid_t get_invoker_pid() {
     // Perform syscall to get sender id if not already cached.
-    if (senderId < 0) {
+    if (invoker_pid < 0) {
         // Assumption: all pids are non negative.
-        senderId = getpid();
-        printf("updated cached pid to=%d\n", senderId);
+        invoker_pid = getpid();
+        printf("updated cached pid to=%d\n", invoker_pid);
     }
-    return senderId;
+    return invoker_pid;
 }
 
 /**
@@ -122,7 +122,7 @@ int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
     get_invoker_pid();
     // Spin lock -- wait for exclusive access.
     expected = SHM_SEGMENT_UNLOCKED;
-    while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, senderId)) {
+    while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, invoker_pid)) {
         // Unfortunately have to make it this verbose since expected is overwritten if the result is false.
         // See last answer here.
         // https://stackoverflow.com/questions/16043723/why-do-c11-cas-operations-take-two-pointer-parameters
@@ -133,9 +133,9 @@ int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
         // Buffer is full.
         printf("buffer is full, cannot add msg\n");
         // Release lock and return error code.
-        expected = senderId;
+        expected = invoker_pid;
         while(atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, SHM_SEGMENT_UNLOCKED)) {
-            expected = senderId;
+            expected = invoker_pid;
         }
         return -1;
     }
@@ -150,7 +150,7 @@ int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
      */
     size_t msg_offset = sizeof(shm_header) + sizeof(msg) * (header->msg_count % BUFFER_MSG_CAPACITY);
     msg * new_msg = (msg*) shm_ptr->addr + msg_offset;
-    new_msg->senderId = senderId;
+    new_msg->senderId = invoker_pid;
     new_msg->rcvrId = rcvrId;
     size_t payload_len = strlen(payload); // Assumes null-terminated string?
     if (payload_len + 1 > MAX_PAYLOAD_SIZE) {
@@ -183,9 +183,9 @@ int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
 
     // Unlock.
     // Note that loop is necessary even though we already hold the lock as the _weak version is allowed to fail spuriously (see doc).
-    expected = senderId;
+    expected = invoker_pid;
     while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, SHM_SEGMENT_UNLOCKED)) {
-        expected = senderId;
+        expected = invoker_pid;
     }
     printf("successfully added message with payload '%s' to buffer\n", payload);
     // 0 for success.
@@ -259,13 +259,13 @@ int create_shared_mem_segment(int pid1, int pid2) {
 
 void send(char * payload, int receiverId) {
     // Refresh cached pid if needed.
-    senderId = get_invoker_pid();
-    printf("send(char *, int) invoked by caller with pid=%d; rcvrId=%d; payload='%s'\n", senderId, receiverId, payload);
+    invoker_pid = get_invoker_pid();
+    printf("send(char *, int) invoked by caller with pid=%d; rcvrId=%d; payload='%s'\n", invoker_pid, receiverId, payload);
     // Locate the shared memory segment if one already exists by querying the hash table.
-    shm_dict_entry *entry = find_shm_dict_entry_for_shm_segment(senderId, receiverId);
+    shm_dict_entry *entry = find_shm_dict_entry_for_shm_segment(invoker_pid, receiverId);
     if(entry == NULL) {
         // No existing shared memory segment, so set one up.
-        int created = create_shared_mem_segment(senderId, receiverId);
+        int created = create_shared_mem_segment(invoker_pid, receiverId);
         if (0 != created) {
             // TODO error handling
             printf("[ERROR] create_shared_mem_segment(int,int) returned error code %d. Memory segment not created.\n", created);
@@ -273,14 +273,19 @@ void send(char * payload, int receiverId) {
         }
         // As the shm segment has been created, there should now be a corresponding entry in the map.
         // Fetch it as we need it for put_msg below.
-        entry = find_shm_dict_entry_for_shm_segment(senderId, receiverId);
+        entry = find_shm_dict_entry_for_shm_segment(invoker_pid, receiverId);
     }
     // Finally place the message in the shared memory segment.
     put_msg(entry, receiverId, payload);
 }
 
+msg* recv(int senderId) {
+    return NULL;
+}
+
+/* maruf recv
 msg *recv(int senderId){
-    /*
+    
     char *identifier = malloc(2*INT_AS_STR_MAX_CHARS+1);
     // Get own pid from cache or update cache if pid not previously read.
     int receiverId = get_invoker_pid();
@@ -308,8 +313,7 @@ msg *recv(int senderId){
           //MAYBE WE ALLOCATE NEW MEMORY BLOCK?
 
      }
-     */
-    return NULL;
+     
 //    if(entry == NULL) {
 //        // shared memory does not exist
 //        printf("the shared memory does not exist");
@@ -319,4 +323,6 @@ msg *recv(int senderId){
 //        // read from the shared memory
 //        printf("shared memory found");
 //    }
+     
 }
+*/
