@@ -43,7 +43,7 @@ pid_t senderId = -42;
  */
 const pid_t SHM_SEGMENT_UNLOCKED = -1;
 
-pid_t get_sender_pid() {
+pid_t get_invoker_pid() {
     // Perform syscall to get sender id if not already cached.
     if (senderId < 0) {
         // Assumption: all pids are non negative.
@@ -86,7 +86,7 @@ int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
     // Read the header which resides at the front of the shared memory segment.
     shm_header * header = (shm_header *)shm_ptr->addr;
     // Refresh cache with sender's pid if necessary.
-    get_sender_pid();
+    get_invoker_pid();
     // Spin lock -- wait for exclusive access.
     expected = SHM_SEGMENT_UNLOCKED;
     while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, senderId)) {
@@ -95,7 +95,7 @@ int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
         // https://stackoverflow.com/questions/16043723/why-do-c11-cas-operations-take-two-pointer-parameters
         expected = SHM_SEGMENT_UNLOCKED;
     }
-    
+
     if (header->msg_count == BUFFER_MSG_CAPACITY) {
         // Buffer is full.
         printf("buffer is full, cannot add msg\n");
@@ -148,7 +148,7 @@ int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
         header->oldest = header->newest;
     }
     // ------------------------------------------------------------------------------------
-    
+
     // Unlock.
     // Note that loop is necessary even though we already hold the lock as the _weak version is allowed to fail spuriously (see doc).
     expected = senderId;
@@ -189,7 +189,6 @@ void init_shm_header(shm_dict_entry * shm_ptr) {
 //}
 
 void send(char * payload, int receiverId) {
-    // ---- ANSI C requires variables to be declared at the start of a block ---
     // File descriptor for the shared memory segment.
     int fd;
     // Identifier for the shared memory segment we are looking up.
@@ -197,10 +196,13 @@ void send(char * payload, int receiverId) {
     // Entry in map for memory segment.
     shm_dict_entry *entry = malloc(sizeof(*entry));
     // -------------------------------------------------------------------------
-    printf("send(char *, int) invoked by caller with pid=%d; rcvrId=%d; payload='%s'\n", getpid(), receiverId, payload);
+
+    senderId = get_invoker_pid();
+    printf("send(char *, int) invoked by caller with pid=%d; rcvrId=%d; payload='%s'\n", senderId, receiverId, payload);
+
     printf("cached pid=%d\n", senderId);
     // construct the key by concatenating sender and receiver IDs
-    sprintf(identifier, "/%d%d", get_sender_pid(), receiverId); // TODO add delimiter for uniqueness
+    sprintf(identifier, "/%d%d", senderId, receiverId); // TODO add delimiter for uniqueness
     // Check if there's already an entry (and thereby already an open shared memory segment).
     HASH_FIND_STR(shm_dict, identifier, entry);
     if(entry == NULL) {
@@ -247,6 +249,32 @@ void send(char * payload, int receiverId) {
     // Reinit entry in case it was null above -- TODO necessary as we init entry during the if block?
     HASH_FIND_STR(shm_dict, identifier, entry);
     put_msg(entry, receiverId, payload);
+}
+
+msg *recv(int senderId){
+
+    char *identifier = malloc(2*INT_AS_STR_MAX_CHARS+1);
+    int receiverId = get_invoker_pid();
+
+    sprintf(identifier, "/%d%d", senderId, receiverId);
+
+    printf("recv(int) invoked by caller with receiverId=%d; senderId=%d\n", senderId, receiverId);
+
+    printf("cached pid=%d\n", receiverId);
+
+    shm_dict_entry *entry = malloc(sizeof(*entry));
+    HASH_FIND_STR(shm_dict, identifier, entry);
+
+    if(entry == NULL) {
+        printf("the shared memory does not exist");
+        return NULL;
+    }
+    else{
+
+    }
+
+
+
 }
 
 //msg recv(int senderId) {
