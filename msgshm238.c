@@ -255,7 +255,8 @@ void send(char * payload, int receiverId) {
 msg *recv(int senderId){
 
     char *identifier = malloc(2*INT_AS_STR_MAX_CHARS+1);
-    int receiverId = getpid();
+    // Get own pid from cache or update cache if pid not previously read.
+    int receiverId = get_invoker_pid();
 
     sprintf(identifier, "/%d%d", senderId, receiverId);
 
