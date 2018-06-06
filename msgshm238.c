@@ -230,6 +230,12 @@ int create_shared_mem_segment(int pid1, int pid2) {
     printf("Creating new shared memory segment with id=%s...\n", identifier);
     // Create and open new shared memory segment.
     fd = shm_open(identifier, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
+    /*
+     * TODO CHECK HERE IF ERROR CODE MEANS SEGMENT ALREADY EXISTED.
+     * IF THIS IS THE CASE, IT MEANS THAT THE OTHER PROCESS CREATED
+     * SHARED MEMORY SEGMENT BEFORE US, AND WE SHOULD SIMPLY ATTACH
+     * TO IT.
+     */
     if (fd == -1) {
         printf("Error creating new shared memory segment.\n");
         // Return error code letting caller now that segment could not be created.
