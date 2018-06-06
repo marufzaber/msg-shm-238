@@ -43,7 +43,7 @@ pid_t senderId = -42;
  */
 const pid_t SHM_SEGMENT_UNLOCKED = -1;
 
-pid_t get_invoker_pid() {
+pid_t get_sender_pid() {
     // Perform syscall to get sender id if not already cached.
     if (senderId < 0) {
         // Assumption: all pids are non negative.
@@ -86,7 +86,7 @@ int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
     // Read the header which resides at the front of the shared memory segment.
     shm_header * header = (shm_header *)shm_ptr->addr;
     // Refresh cache with sender's pid if necessary.
-    get_invoker_pid();
+    get_sender_pid();
     // Spin lock -- wait for exclusive access.
     expected = SHM_SEGMENT_UNLOCKED;
     while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, senderId)) {
@@ -197,7 +197,7 @@ void send(char * payload, int receiverId) {
     shm_dict_entry *entry = malloc(sizeof(*entry));
     // -------------------------------------------------------------------------
 
-    senderId = get_invoker_pid();
+    senderId = get_sender_pid();
     printf("send(char *, int) invoked by caller with pid=%d; rcvrId=%d; payload='%s'\n", senderId, receiverId, payload);
 
     printf("cached pid=%d\n", senderId);
@@ -254,24 +254,28 @@ void send(char * payload, int receiverId) {
 msg *recv(int senderId){
 
     char *identifier = malloc(2*INT_AS_STR_MAX_CHARS+1);
-    int receiverId = get_invoker_pid();
+    int receiverId = getpid();
 
     sprintf(identifier, "/%d%d", senderId, receiverId);
-
-    printf("recv(int) invoked by caller with receiverId=%d; senderId=%d\n", senderId, receiverId);
-
-    printf("cached pid=%d\n", receiverId);
 
     shm_dict_entry *entry = malloc(sizeof(*entry));
     HASH_FIND_STR(shm_dict, identifier, entry);
 
-    if(entry == NULL) {
-        printf("the shared memory does not exist");
-        return NULL;
-    }
-    else{
+     int ShmID = shmget(identifier, sizeof(shm_header) + sizeof(char *) * BUFFER_MSG_CAPACITY, SHM_R|SHM_W);
+     if (ShmID < 0) {
+          printf("*** shmget error (client) ***\n");
+          exit(1);
+     }
 
-    }
+//    if(entry == NULL) {
+//        // shared memory does not exist
+//        printf("the shared memory does not exist");
+//        return NULL;
+//    }
+//    else{
+//        // read from the shared memory
+//        printf("shared memory found");
+//    }
 
 
 

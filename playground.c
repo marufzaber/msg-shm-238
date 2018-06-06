@@ -18,13 +18,19 @@ int main(void) {
     printf("enter s to send and r to receive:");
     char ch;
     scanf("%c",&ch);
-    if(ch == 's')
-        send(str1, 42);
+    if(ch == 's'){
+        int receiver_id;
+        printf("enter receiver id : ");
+        scanf("%d",&receiver_id);
+        send(str1, receiver_id);
+        while(1);
+    }
     else if(ch == 'r'){
         int sender_id;
         printf("enter sender id : ");
         scanf("%d",&sender_id);
         recv(sender_id);
+        //while(1);
     }
     return 0;
 }
