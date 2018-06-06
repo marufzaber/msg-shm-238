@@ -264,14 +264,16 @@ void send(char * payload, int receiverId) {
     // Locate the shared memory segment if one already exists by querying the hash table.
     shm_dict_entry *entry = find_shm_dict_entry_for_shm_segment(invoker_pid, receiverId);
     if(entry == NULL) {
-        // No existing shared memory segment, so set one up.
+        // No **knowledge of** existing shared memory segment, so set one up.
+        // Note that a shared mem segment may in fact exist, we just haven't interacted with it yet.
+        // It is up to create_shared_mem_segment to attach to it (instead of creating it) if it already exists.
         int created = create_shared_mem_segment(invoker_pid, receiverId);
         if (0 != created) {
             // TODO error handling
             printf("[ERROR] create_shared_mem_segment(int,int) returned error code %d. Memory segment not created.\n", created);
             return;
         }
-        // As the shm segment has been created, there should now be a corresponding entry in the map.
+        // As the shm segment has now been created, there should now be a corresponding entry in the map.
         // Fetch it as we need it for put_msg below.
         entry = find_shm_dict_entry_for_shm_segment(invoker_pid, receiverId);
     }
@@ -279,8 +281,80 @@ void send(char * payload, int receiverId) {
     put_msg(entry, receiverId, payload);
 }
 
+msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
+    int expected;
+    // Read the header which resides at the front of the shared memory segment.
+    shm_header * header = (shm_header *)shm_ptr->addr;
+    // Spin lock -- wait for exclusive access.
+    expected = SHM_SEGMENT_UNLOCKED;
+    while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, invoker_pid)) {
+        expected = SHM_SEGMENT_UNLOCKED;
+    }
+    // Exclusive access to shm segment obained.
+    
+    /*
+     * Calcuate the offset of the oldest message in the buffer.
+     *
+     * TODO: the oldest message might be one sent by invoker_pid itself, so may
+     * need to advance value pointed to by oldest by +1 until we get to a message
+     * where msg->senderId != invoker_pid.
+     */
+    size_t msg_offset = sizeof(shm_header) + sizeof(msg) * (header->oldest);
+    msg* shared_msg = (msg*) shm_ptr->addr + msg_offset;
+    // Make a copy of the message in local memory for safety and to free space
+    // in the shared memory segment.
+    msg* local_msg = malloc(sizeof(*local_msg));
+    if (local_msg == NULL) {
+        /* Ugh, out of memory */
+        printf("[ERROR] could not malloc memory for local_msg when copying from shared_msg read from shared memory\n");
+        return NULL;
+    }
+    local_msg->senderId = shared_msg->senderId; // Need to copy?
+    local_msg->rcvrId = shared_msg->rcvrId; // Need to copy?
+    // Copy the payload to the local msg.
+    strncpy(local_msg->payload, shared_msg->payload, MAX_PAYLOAD_SIZE);
+    
+    /*
+     * Set flag that indicates that shared_msg was read and is no longer needed.
+     *
+     * TODO for now we can just increment shm_header->oldest, but this WON'T WORK
+     * if shm_header->oldest is a message sent by invoker_pid and we therefore
+     * 'proceed' more recent messages (see note above).
+     */
+    header->oldest = header->oldest + 1 % BUFFER_MSG_CAPACITY;
+    
+    
+    
+    // Unlock exclusive access to shared memory segment.
+    expected = invoker_pid;
+    while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, SHM_SEGMENT_UNLOCKED)) {
+        expected = invoker_pid;
+    }
+    return local_msg;
+}
+
 msg* recv(int senderId) {
-    return NULL;
+    // Refresh cached pid if needed.
+    get_invoker_pid();
+    printf("recv(int senderId) invoked by caller with pid=%d; senderId=%d\n", invoker_pid, senderId);
+    // Locate the shared memory segment if one already exists by querying the hash table.
+    shm_dict_entry *entry = find_shm_dict_entry_for_shm_segment(invoker_pid, senderId);
+    if (entry == NULL) {
+        // No **knowledge of** existing shared memory segment, so set one up.
+        // Note that a shared mem segment may in fact exist, we just haven't interacted with it yet.
+        // It is up to create_shared_mem_segment to attach to it (instead of creating it) if it already exists.
+        int created = create_shared_mem_segment(invoker_pid, senderId);
+        if (0 != created) {
+            // TODO error handling
+            printf("[ERROR] create_shared_mem_segment(int,int) returned error code %d. Memory segment not created.\n", created);
+            return NULL;
+        }
+        // As the shm segment has now been created, there should now be a corresponding entry in the map.
+        // Fetch it as we need it for fetch_msg below.
+        entry = find_shm_dict_entry_for_shm_segment(invoker_pid, senderId);
+    }
+    msg* m = fetch_msg(entry, senderId);
+    return m;
 }
 
 /* maruf recv
