@@ -16,10 +16,8 @@
  */
 #define INT_AS_STR_MAX_CHARS 3*sizeof(int)+2
 
-/**
- * Value of shm_header.pIdOfCurrent when shared memory segment is unlocked.
- */
-#define SHM_SEGMENT_UNLOCKED -1
+
+//#define SHM_SEGMENT_UNLOCKED -1
 
 /**
  * The maximum number of messages that can be in the message buffer (shared memory segment) at any time.
@@ -40,7 +38,12 @@
  */
 pid_t senderId = -42;
 
-int get_sender_pid() {
+/**
+ * Value of shm_header.pIdOfCurrent when shared memory segment is unlocked.
+ */
+pid_t SHM_SEGMENT_UNLOCKED = -1;
+
+pid_t get_sender_pid() {
     // Perform syscall to get sender id if not already cached.
     if (senderId < 0) {
         // Assumption: all pids are non negative.
@@ -74,21 +77,22 @@ typedef struct shm_dictionary_entry {
  */
 shm_dict_entry *shm_dict = NULL;
 
-void attempt_lock () {
-//    atomic_compare_exchange_weak(object, expected, desired)
-    int res = atomic_compare_exchange_weak(&(int *)addr, 0, senderId);
-}
+
+//    int res = atomic_compare_exchange_weak(&(int *)addr, 0, senderId);
+
 
 int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
     // Read the header which resides at the front of the shared memory segment.
     shm_header * header = (shm_header *)shm_ptr->addr;
+    // Refresh cache with sender's pid if necessary.
+    get_sender_pid();
     // Spin lock -- wait for exclusive access.
-    while(!atomic_compare_exchange_weak(header->pidOfCurrent, SHM_SEGMENT_UNLOCKED, senderId));
+    while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &SHM_SEGMENT_UNLOCKED, senderId));
     
     if (header->msg_count == BUFFER_MSG_CAPACITY) {
         // Buffer is full.
         // Release lock and return error code.
-        while(atomic_compare_exchange_weak(header->pidOfCurrent, senderId, SHM_SEGMENT_UNLOCKED));
+        while(atomic_compare_exchange_weak(&(header->pIdOfCurrent), &senderId, SHM_SEGMENT_UNLOCKED));
         return -1;
     }
     /*
@@ -103,7 +107,7 @@ int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
     size_t msg_offset = sizeof(shm_header) + sizeof(msg) * (header->msg_count % BUFFER_MSG_CAPACITY);
 //    msg * new_msg = (msg*) shm_ptr->addr + sizeof(shm_header) + sizeof(msg) * header->msg_count;
     msg * new_msg = (msg*) shm_ptr->addr + msg_offset;
-    new_msg->senderId = get_sender_pid();
+    new_msg->senderId = senderId;
     new_msg->rcvrId = rcvrId;
     size_t payload_len = strlen(payload); // Assumes null-terminated string?
     if (payload_len + 1 > MAX_PAYLOAD_SIZE) {
@@ -136,7 +140,7 @@ int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
     
     // Unlock.
     // Note that loop is necessary even though we already hold the lock as the _weak version is allowed to fail spuriously (see doc).
-    while(atomic_compare_exchange_weak(header->pidOfCurrent, senderId, SHM_SEGMENT_UNLOCKED));
+    while(atomic_compare_exchange_weak(&(header->pIdOfCurrent), &senderId, SHM_SEGMENT_UNLOCKED));
     // 0 for success.
     return 0;
 }
@@ -151,7 +155,7 @@ void init_shm_header(shm_dict_entry * shm_ptr) {
     header->oldest = -1;
     // TODO: set self as current accessor immediately?
     // If we do so, we will need to update compare and swap check in put_msg function.
-    header->pidOfCurrent = SHM_SEGMENT_UNLOCKED;
+    header->pIdOfCurrent = SHM_SEGMENT_UNLOCKED;
 }
 
 ///**
@@ -178,7 +182,7 @@ void send(char * payload, int receiverId) {
     // Entry in map for memory segment.
     shm_dict_entry *entry = malloc(sizeof(*entry));
     // -------------------------------------------------------------------------
-    printf("send(char *, int) invoked by caller with pid=%d; rcvrId=%d; payload='%s'\n", getpid(), receiverId, *payload);
+    printf("send(char *, int) invoked by caller with pid=%d; rcvrId=%d; payload='%s'\n", getpid(), receiverId, payload);
     printf("cached pid=%d\n", senderId);
     // construct the key by concatenating sender and receiver IDs
     sprintf(identifier, "/%d%d", get_sender_pid(), receiverId); // TODO add delimiter for uniqueness
@@ -193,8 +197,8 @@ void send(char * payload, int receiverId) {
             // TODO: respond to error.
             return; // TODO return error code
         } else {
-            printf("Successfully created new shared memory segment with fd=%d\n", fd);
             void *addr;
+            printf("Successfully created new shared memory segment with fd=%d\n", fd);
             // Apparently need to reallocate here in order to avoid segmentation fault. Q: where to free what we allocated earlier?
             free(entry);
             // Init shm_dict_entry for created shm segment.
@@ -205,8 +209,6 @@ void send(char * payload, int receiverId) {
                 // TODO free payload or leave that to caller?
                 return;
             }
-            entry->id = identifier;
-            entry->addr = addr;
             /*
              * New shared memory segments have length 0, so need to size it.
              * Essentially the size chosen here will be the size of our message queue/buffer.
@@ -218,7 +220,9 @@ void send(char * payload, int receiverId) {
             addr = mmap(NULL, shm_segment_size , PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
             // Apparently fd is no longer needed. We can later unlink the shared memory segment using the identifer.
             close(fd);
-            // Update map with new entry.
+            // Set fields in new entry and update map with new entry.
+            entry->id = identifier;
+            entry->addr = addr;
             // Note that the second parameter (in this case 'id') is the name of the shm_dict_entry field that should be used as key.
             HASH_ADD_STR(shm_dict, id, entry);
             // Setup shm segment header.
@@ -226,11 +230,16 @@ void send(char * payload, int receiverId) {
         }
     }
     // Reinit entry in case it was null above -- TODO necessary as we init entry during the if block?
-    HASH_FIND_STR(shm_dict, id, entry);
-    put_msg(m, entry);
+    HASH_FIND_STR(shm_dict, identifier, entry);
+    put_msg(entry, receiverId, payload);
 }
 
-
+//msg recv(int senderId) {
+//    // 1 locate shm segment
+//    // 2 extract message, if any
+//
+//
+//}
 
 
 // ---------------------------------------------------------------

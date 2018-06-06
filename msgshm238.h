@@ -1,4 +1,5 @@
 #include <semaphore.h>
+#include <stdatomic.h>
 
 sem_t mutex;
 
@@ -75,6 +76,28 @@ void send(char * payload, int receiverId);
  * Read (receive) a message sent by process with pid 'senderId'.
  */
 msg recv(int senderId);
+
+// Header used for structuring data in shm segment.
+typedef struct SharedMemorySegmentHeader {
+    unsigned int msg_count;
+    
+    _Atomic pid_t pIdOfCurrent;
+    
+    //    mem_block *head;
+    //    mem_block *tail;
+    
+    // Index of most recently added message.
+    int newest;
+    // Index of least recently added message.
+    int oldest;
+} shm_header;
+
+typedef struct Memory
+{
+    msg * message;
+    struct mem_block *next;
+}mem_block;
+
 
 // End new copy- and fixed size-based approach
 // ---------------------------------------------------------------
