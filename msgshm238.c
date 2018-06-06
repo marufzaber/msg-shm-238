@@ -114,8 +114,6 @@ shm_dict_entry* find_shm_dict_entry_for_shm_segment(int pid1, int pid2) {
     return entry;
 }
 
-
-
 int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
     int expected;
     // Read the header which resides at the front of the shared memory segment.
@@ -206,21 +204,6 @@ void init_shm_header(shm_dict_entry * shm_ptr) {
     // If we do so, we will need to update compare and swap check in put_msg function.
     header->pIdOfCurrent = SHM_SEGMENT_UNLOCKED;
 }
-
-///**
-// * Use factory pattern in order to ensure that shm_dict_entry is fully built or not built at all.
-// * Courtesy of https://stackoverflow.com/a/14768280/1214974
-// */
-//shm_dict_entry * new_shm_dict_entry(char * id, void * addr) {
-//    shm_dict_entry entry = malloc(sizeof(shm_dict_entry));
-//    if (entry == NULL) {
-//        // out of memory
-//        return NULL;
-//    }
-//    // No need to malloc for values pointed to by id and addr as the caller has already performed those mallocs.
-//    entry->id = id;
-//    entry->addr = addr;
-//}
 
 int create_shared_mem_segment(int pid1, int pid2) {
     // File descriptor for the shared memory segment.
@@ -336,118 +319,4 @@ msg *recv(int senderId){
 //        // read from the shared memory
 //        printf("shared memory found");
 //    }
-
-
-
 }
-
-//msg recv(int senderId) {
-//    // 1 locate shm segment
-//    // 2 extract message, if any
-//
-//
-//}
-
-
-// ---------------------------------------------------------------
-// Begin old pointer-based approach
-
-//void put_msg(msg * m, shm_dict_entry * shm_ptr) {
-//    // Spin lock -- wait for exclusive access.
-//    while(!atomic_compare_exchange_weak(/* get value of shm_segment_header->pidOfCurrentAccesor */, 0, senderId));
-//
-//    // Read the header which resides at the front of the shared memory segment.
-//    shm_header = &(shm_header *)shm_ptr->addr; // TODO fix this.
-//
-//    start =  == NULL ? shm_ptr
-//
-//    memcpy(start, m /* plus its payload - how? */, sizeof(m /* plus its payload - how? */));
-//
-//
-//    // Unlock.
-//    // Note that loop is necessary even though we already hold the lock as the _weak version is allowed to fail spuriously (see doc).
-//    while(atomic_compare_exchange_weak(/* get value of shm_segment_header->pidOfCurrentAccesor */, senderId, 0));
-//}
-
-//void send(msg* m) {
-//    // ---- ANSI C requires variables to be declared at the start of a block ---
-//    // File descriptor for the shared memory segment.
-//    int fd;
-//    // Identifier for the shared memory segment we are looking up.
-//    char *identifier = malloc(2*INT_AS_STR_MAX_CHARS+1);
-//    // Entry in map for memory segment.
-//    shm_dict_entry *entry = malloc(sizeof(*entry));
-//    // -------------------------------------------------------------------------
-//    printf("send(msg* m) invoked by caller with pid=%d; m->senderId=%d m->rcvrId=%d m->payload='%s'\n", getpid(), m->senderId, m->rcvrId, m->payload);
-//    printf("cached pid=%d\n", senderId);
-//    // construct the key by concatenating sender and receiver IDs
-//    sprintf(identifier, "/%d%d", m->senderId, m->rcvrId);
-//    // Check if there's already an entry (and thereby already an open shared memory segment).
-//    HASH_FIND_STR(shm_dict, identifier, entry);
-//    if(entry == NULL) {
-//        printf("No entry found for '%s'; creating new shared memory segment...\n", identifier);
-//        // Create and open new shared memory segment.
-//        fd = shm_open(identifier, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
-//        if (fd == -1) {
-//            printf("Error creating new shared memory segment.\n");
-//            // TODO: respond to error.
-//            return; // TODO return error code
-//        } else {
-//            void *addr;
-//            // Apparently need to reallocate here in order to avoid segmentation fault. Q: where to free what we allocated earlier?
-//            free(entry);
-//            entry = malloc(sizeof(shm_dict_entry));
-//            printf("Successfully created new shared memory segment with fd=%d\n", fd);
-//            /*
-//             * New shared memory segments have length 0, so need to size it.
-//             *
-//             * TODO: need to figure out a way to come up with a reasonable size for the memory segment; for now just size it according to the incoming message.
-//             * Essentially the size chosen here will be the size of our message queue/buffer.
-//             * We've made it hard for ourselves by choosing a variable size content length of messages (the payload pointer).
-//             * Maybe consider making payload a fixed size and null terminate it if the message payload is shorter than what we leave space for.
-//             * Ideas?
-//             */
-//            ftruncate(fd, sizeof(m));
-//            // Map shared memory segment into own address space.
-//            addr = mmap(NULL, sizeof(m), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-//            // Apparently fd is no longer needed. We can later unlink the shared memory segment using the identifer.
-//            close(fd);
-//            // Update map with new entry...
-//            // Must allocate size for the shared memory segment identifier separetely as it is a pointer.
-//            entry->id = malloc(sizeof(*identifier)); // Q malloc needed here? Runs fine w/o it.
-//            entry->id = identifier;
-//            entry->addr = malloc(sizeof(*addr)); // Q malloc needed here? Runs fine w/o it.
-//            entry->addr = addr;
-//            HASH_ADD_STR(shm_dict, id, entry);
-//            // Setup shm segment header
-//            init_shm_header(entry);
-//        }
-//    }
-//    // Reinit entry in case it was null above -- TODO necessary as we init entry during the if block?
-//    HASH_FIND_STR(shm_dict, id, entry);
-//    put_msg(m, entry);
-//}
-
-//msg* constructMsg(char *content, int receiverId) {
-//    msg* message;
-//    // TODO / Q: how to account for variable length of *content when doing malloc?
-//    message = (msg*) malloc(sizeof(msg));
-//    if (message == NULL) {
-//        printf("out of memory\n");
-//        // TODO how to handle?
-//    }
-//    // Perform syscall to get sender id if not already cached.
-//    if (senderId < 0) {
-//        // Assumption: all pids are non negative.
-//        senderId = getpid();
-//        printf("updated cached pid to=%d\n", senderId);
-//    }
-//    message->senderId = senderId;
-//    message->rcvrId = receiverId;
-//    // TODO consider copying for safety; but bad for perforamnce :-(.
-//    message->payload = content;
-//    return message;
-//}
-
-// End old pointer-based approach
-// ---------------------------------------------------------------
