@@ -41,7 +41,7 @@ pid_t senderId = -42;
 /**
  * Value of shm_header.pIdOfCurrent when shared memory segment is unlocked.
  */
-pid_t SHM_SEGMENT_UNLOCKED = -1;
+const pid_t SHM_SEGMENT_UNLOCKED = -1;
 
 pid_t get_sender_pid() {
     // Perform syscall to get sender id if not already cached.
@@ -82,17 +82,28 @@ shm_dict_entry *shm_dict = NULL;
 
 
 int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
+    int expected;
     // Read the header which resides at the front of the shared memory segment.
     shm_header * header = (shm_header *)shm_ptr->addr;
     // Refresh cache with sender's pid if necessary.
     get_sender_pid();
     // Spin lock -- wait for exclusive access.
-    while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &SHM_SEGMENT_UNLOCKED, senderId));
+    expected = SHM_SEGMENT_UNLOCKED;
+    while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, senderId)) {
+        // Unfortunately have to make it this verbose since expected is overwritten if the result is false.
+        // See last answer here.
+        // https://stackoverflow.com/questions/16043723/why-do-c11-cas-operations-take-two-pointer-parameters
+        expected = SHM_SEGMENT_UNLOCKED;
+    }
     
     if (header->msg_count == BUFFER_MSG_CAPACITY) {
         // Buffer is full.
+        printf("buffer is full, cannot add msg\n");
         // Release lock and return error code.
-        while(atomic_compare_exchange_weak(&(header->pIdOfCurrent), &senderId, SHM_SEGMENT_UNLOCKED));
+        expected = senderId;
+        while(atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, SHM_SEGMENT_UNLOCKED)) {
+            expected = senderId;
+        }
         return -1;
     }
     /*
@@ -140,7 +151,11 @@ int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
     
     // Unlock.
     // Note that loop is necessary even though we already hold the lock as the _weak version is allowed to fail spuriously (see doc).
-    while(atomic_compare_exchange_weak(&(header->pIdOfCurrent), &senderId, SHM_SEGMENT_UNLOCKED));
+    expected = senderId;
+    while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, SHM_SEGMENT_UNLOCKED)) {
+        expected = senderId;
+    }
+    printf("successfully added message with payload '%s' to buffer\n", payload);
     // 0 for success.
     return 0;
 }
