@@ -13,7 +13,9 @@ int main(void) {
 
     char * str1 = "string1";
     char * str2 = "string2";
-
+    send(str1, 42);
+    send(str2, 42);
+    /*
     printf("PID: %d Running\n",getpid());
     printf("enter s to send and r to receive:");
     char ch;
@@ -32,6 +34,7 @@ int main(void) {
         recv(sender_id);
         //while(1);
     }
+    */
     return 0;
 }
 

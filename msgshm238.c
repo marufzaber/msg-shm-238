@@ -17,9 +17,6 @@
  */
 #define INT_AS_STR_MAX_CHARS 3*sizeof(int)+2
 
-
-//#define SHM_SEGMENT_UNLOCKED -1
-
 /**
  * The maximum number of messages that can be in the message buffer (shared memory segment) at any time.
  * TODO update to proper size -- for now allow room for two messages.
@@ -44,7 +41,7 @@ pid_t senderId = -42;
  */
 const pid_t SHM_SEGMENT_UNLOCKED = -1;
 
-pid_t get_sender_pid() {
+pid_t get_invoker_pid() {
     // Perform syscall to get sender id if not already cached.
     if (senderId < 0) {
         // Assumption: all pids are non negative.
@@ -78,9 +75,6 @@ typedef struct shm_dictionary_entry {
  */
 shm_dict_entry *shm_dict = NULL;
 
-
-//    int res = atomic_compare_exchange_weak(&(int *)addr, 0, senderId);
-
 /**
  * Utility function for initializing a pointer that points to a value that is the identifier of the shared
  * memory segment that processes with pid1 and pid2 use to communicate. By setting the value here, we make
@@ -92,21 +86,42 @@ shm_dict_entry *shm_dict = NULL;
  * invoked from the send or recv function).
  */
 char * get_shm_id_for_processes(int pid1, int pid2) {
-    char * shm_id = malloc(2*INT_AS_STR_MAX_CHARS+1);
+    // +1 for slash and +1 for delimiter (underscore)
+    char * shm_id = malloc(2*INT_AS_STR_MAX_CHARS+1+1);
     if (pid1 < pid2) {
-        sprintf(identifier, "/%d_%d", pid1, pid2);
+        sprintf(shm_id, "/%d_%d", pid1, pid2);
     } else {
-        sprintf(identifier, "/%d_%d", pid2, pid1);
+        sprintf(shm_id, "/%d_%d", pid2, pid1);
     }
     return shm_id;
 }
+
+/**
+ * Look up the hash table, searching for a shared memory segment for processes with pids pid1 and pid2.
+ * The caller is responsible for freeing the shm_dict_entry once it is no longer needed. Note that such
+ * a free call will affect the hash table!
+ */
+shm_dict_entry* find_shm_dict_entry_for_shm_segment(int pid1, int pid2) {
+    // Identifier for shm segment.
+    char * shm_id = get_shm_id_for_processes(pid1, pid2);
+    // Dictionary entry for the shm segment.
+    shm_dict_entry *entry = NULL;
+    // Lookup dict entry.
+    HASH_FIND_STR(shm_dict, shm_id, entry);
+    // Clean up
+    free(shm_id);
+    // Note: NULL is returned if no match.
+    return entry;
+}
+
+
 
 int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
     int expected;
     // Read the header which resides at the front of the shared memory segment.
     shm_header * header = (shm_header *)shm_ptr->addr;
     // Refresh cache with sender's pid if necessary.
-    get_sender_pid();
+    get_invoker_pid();
     // Spin lock -- wait for exclusive access.
     expected = SHM_SEGMENT_UNLOCKED;
     while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, senderId)) {
@@ -136,7 +151,6 @@ int put_msg(shm_dict_entry * shm_ptr, int rcvrId, char * payload) {
      * TODO: need +1 byte? Or is this taken care of by 0-indexed approach?
      */
     size_t msg_offset = sizeof(shm_header) + sizeof(msg) * (header->msg_count % BUFFER_MSG_CAPACITY);
-//    msg * new_msg = (msg*) shm_ptr->addr + sizeof(shm_header) + sizeof(msg) * header->msg_count;
     msg * new_msg = (msg*) shm_ptr->addr + msg_offset;
     new_msg->senderId = senderId;
     new_msg->rcvrId = rcvrId;
@@ -211,21 +225,13 @@ void init_shm_header(shm_dict_entry * shm_ptr) {
 void send(char * payload, int receiverId) {
     // File descriptor for the shared memory segment.
     int fd;
-    // Identifier for the shared memory segment we are looking up.
-    char *identifier = malloc(2*INT_AS_STR_MAX_CHARS+1);
-    // Entry in map for memory segment.
-    shm_dict_entry *entry = malloc(sizeof(*entry));
     // -------------------------------------------------------------------------
-
-    senderId = get_sender_pid();
+    senderId = get_invoker_pid();
     printf("send(char *, int) invoked by caller with pid=%d; rcvrId=%d; payload='%s'\n", senderId, receiverId, payload);
-
-    printf("cached pid=%d\n", senderId);
-    // construct the key by concatenating sender and receiver IDs
-    sprintf(identifier, "/%d%d", senderId, receiverId); // TODO add delimiter for uniqueness
-    // Check if there's already an entry (and thereby already an open shared memory segment).
-    HASH_FIND_STR(shm_dict, identifier, entry);
+    // Locate the shared memory segment if one already exists by querying the hash table.
+    shm_dict_entry *entry = find_shm_dict_entry_for_shm_segment(senderId, receiverId);
     if(entry == NULL) {
+        char * identifier = get_shm_id_for_processes(senderId, receiverId);
         printf("No entry found for '%s'; creating new shared memory segment...\n", identifier);
         // Create and open new shared memory segment.
         fd = shm_open(identifier, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
@@ -266,13 +272,11 @@ void send(char * payload, int receiverId) {
             init_shm_header(entry);
         }
     }
-    // Reinit entry in case it was null above -- TODO necessary as we init entry during the if block?
-    HASH_FIND_STR(shm_dict, identifier, entry);
     put_msg(entry, receiverId, payload);
 }
 
 msg *recv(int senderId){
-
+    /*
     char *identifier = malloc(2*INT_AS_STR_MAX_CHARS+1);
     // Get own pid from cache or update cache if pid not previously read.
     int receiverId = get_invoker_pid();
@@ -300,7 +304,8 @@ msg *recv(int senderId){
           //MAYBE WE ALLOCATE NEW MEMORY BLOCK?
 
      }
-
+     */
+    return NULL;
 //    if(entry == NULL) {
 //        // shared memory does not exist
 //        printf("the shared memory does not exist");
