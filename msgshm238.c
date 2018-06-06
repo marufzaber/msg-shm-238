@@ -292,6 +292,16 @@ msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
     }
     // Exclusive access to shm segment obained.
     
+    if (header->msg_count == 0) {
+        // There are no messages to be read => release lock and return NULL.
+        expected = invoker_pid;
+        while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, SHM_SEGMENT_UNLOCKED)) {
+            expected = invoker_pid;
+        }
+        return NULL;
+    }
+    
+    
     /*
      * Calcuate the offset of the oldest message in the buffer.
      *
@@ -322,7 +332,8 @@ msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
      * 'proceed' more recent messages (see note above).
      */
     header->oldest = header->oldest + 1 % BUFFER_MSG_CAPACITY;
-    
+    // We consumed a message, so decrease the count of messages in the buffer.
+    header->msg_count--;
     
     
     // Unlock exclusive access to shared memory segment.

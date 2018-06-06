@@ -16,11 +16,20 @@ int main(void) {
     send(str1, 42);
     send(str2, 42);
     
+    // Note: attempts to read messages sent by self
     msg* msg1 = recv(42);
     printf("read message: { senderId=%d; rcvrId=%d; payload='%s'; }\n", msg1->senderId, msg1->rcvrId, msg1->payload);
-    
     msg* msg2 = recv(42);
     printf("read message: { senderId=%d; rcvrId=%d; payload='%s'; }\n", msg2->senderId, msg2->rcvrId, msg2->payload);
+    // There should be no more messages left in buffer at this point.
+    // Make sure we handle this corner case.
+    msg* msg3 = recv(42);
+    if (NULL == msg3) {
+        printf("buffer empty, recv() returned NULL\n");
+    } else {
+        printf("read message: { senderId=%d; rcvrId=%d; payload='%s'; }\n", msg3->senderId, msg3->rcvrId, msg3->payload);
+    }
+    
     
     /*
     printf("PID: %d Running\n",getpid());
