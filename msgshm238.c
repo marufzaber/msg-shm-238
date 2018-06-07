@@ -433,15 +433,15 @@ msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
      *
      * TODO: the oldest message might be one sent by invoker_pid itself, so may
      * need to advance value pointed to by oldest by +1 until we get to a message
-     * where msg->senderId != invoker_pid.
-     */
+     // where msg->senderId != invoker_pid.
+
     size_t msg_offset = sizeof(shm_header) + sizeof(msg) * (header->oldest);
     msg* shared_msg = (msg*) shm_ptr->addr + msg_offset;
     // Make a copy of the message in local memory for safety and to free space
     // in the shared memory segment.
     msg* local_msg = malloc(sizeof(*local_msg));
     if (local_msg == NULL) {
-        /* Ugh, out of memory */
+
         printf("[ERROR] could not malloc memory for local_msg when copying from shared_msg read from shared memory\n");
         return NULL;
     }
@@ -456,7 +456,7 @@ msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
      * TODO for now we can just increment shm_header->oldest, but this WON'T WORK
      * if shm_header->oldest is a message sent by invoker_pid and we therefore
      * 'proceed' more recent messages (see note above).
-     */
+     //*
     header->oldest = header->oldest + 1 % BUFFER_MSG_CAPACITY;
     // We consumed a message, so decrease the count of messages in the buffer.
     header->msg_count--;
