@@ -10,6 +10,7 @@
 #include "uthash.h" /* Hash table provided by https://troydhanson.github.io/uthash/ */
 #include <stdatomic.h>
 #include <sys/ipc.h>
+#include <errno.h>
 
 /**
  * Max number of chars needed to convert an int to a string.
@@ -219,6 +220,12 @@ int create_shared_mem_segment(int pid1, int pid2) {
      * SHARED MEMORY SEGMENT BEFORE US, AND WE SHOULD SIMPLY ATTACH
      * TO IT.
      */
+
+    if(fd == EEXIST){
+        printf("shared memory exist so errorno is EEXIST");
+        return EEXIST;
+    }
+
     if (fd == -1) {
         printf("Error creating new shared memory segment.\n");
         // Return error code letting caller now that segment could not be created.
@@ -281,17 +288,25 @@ void send(char * payload, int receiverId) {
     put_msg(entry, receiverId, payload);
 }
 
-msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
+//msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
+
+// I changed the prototype [MARUF]
+msg* fetch_msg(shm_header* header, int senderId) {
+
     int expected;
     // Read the header which resides at the front of the shared memory segment.
-    shm_header * header = (shm_header *)shm_ptr->addr;
+
+    //******* header is passed so so need
+
+    //shm_header * header = (shm_header *)shm_ptr->addr;
+
     // Spin lock -- wait for exclusive access.
     expected = SHM_SEGMENT_UNLOCKED;
     while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, invoker_pid)) {
         expected = SHM_SEGMENT_UNLOCKED;
     }
     // Exclusive access to shm segment obained.
-    
+
     if (header->msg_count == 0) {
         // There are no messages to be read => release lock and return NULL.
         expected = invoker_pid;
@@ -300,8 +315,8 @@ msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
         }
         return NULL;
     }
-    
-    
+
+
     /*
      * Calcuate the offset of the oldest message in the buffer.
      *
@@ -323,7 +338,7 @@ msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
     local_msg->rcvrId = shared_msg->rcvrId; // Need to copy?
     // Copy the payload to the local msg.
     strncpy(local_msg->payload, shared_msg->payload, MAX_PAYLOAD_SIZE);
-    
+
     /*
      * Set flag that indicates that shared_msg was read and is no longer needed.
      *
@@ -334,8 +349,119 @@ msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
     header->oldest = header->oldest + 1 % BUFFER_MSG_CAPACITY;
     // We consumed a message, so decrease the count of messages in the buffer.
     header->msg_count--;
-    
-    
+
+    // Unlock exclusive access to shared memory segment.
+    expected = invoker_pid;
+    while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, SHM_SEGMENT_UNLOCKED)) {
+        expected = invoker_pid;
+    }
+    return local_msg;
+}
+
+//recv Janus
+
+msg* recv(int senderId) {
+    // Refresh cached pid if needed.
+    get_invoker_pid();
+    printf("recv(int senderId) invoked by caller with pid=%d; senderId=%d\n", invoker_pid, senderId);
+    // Locate the shared memory segment if one already exists by querying the hash table.
+
+
+    //shm_dict_entry *entry = find_shm_dict_entry_for_shm_segment(invoker_pid, senderId);
+
+    shm_dict_entry *entry = find_shm_dict_entry_for_shm_segment(senderId, get_invoker_pid());
+
+    if (entry == NULL) {
+        // No **knowledge of** existing shared memory segment, so set one up.
+        // Note that a shared mem segment may in fact exist, we just haven't interacted with it yet.
+        // It is up to create_shared_mem_segment to attach to it (instead of creating it) if it already exists.
+
+        /*** int created = create_shared_mem_segment(invoker_pid, senderId); **/
+
+        int created = create_shared_mem_segment(senderId, get_invoker_pid());
+
+        if (created != 0) {
+            // TODO error handling
+            printf("[ERROR] create_shared_mem_segment(int,int) returned error code %d. Memory segment not created.\n", created);
+            int id = shmget(get_shm_id_for_processes(senderId, get_invoker_pid()), sizeof(shm_header) + sizeof(msg) * BUFFER_MSG_CAPACITY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH | IPC_CREAT);
+
+            if(id != -1){
+                printf("success!! we got the id for already created shared mem\n");
+                shm_header  *header = (shm_header *)shmat(id, 0, 0);
+                msg * m = fetch_msg(header, senderId);
+                return m;
+            }
+            else{
+               return NULL;
+            }
+        }
+        // As the shm segment has now been created, there should now be a corresponding entry in the map.
+        // Fetch it as we need it for fetch_msg below.
+        entry = find_shm_dict_entry_for_shm_segment(invoker_pid, senderId);
+    }
+    /***** changed it temporarily************/
+    //msg* m = fetch_msg(entry, senderId);
+    //return m;
+    return NULL;
+}
+
+// previous code *******/
+/*
+msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
+    int expected;
+    // Read the header which resides at the front of the shared memory segment.
+    shm_header * header = (shm_header *)shm_ptr->addr;
+    // Spin lock -- wait for exclusive access.
+    expected = SHM_SEGMENT_UNLOCKED;
+    while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, invoker_pid)) {
+        expected = SHM_SEGMENT_UNLOCKED;
+    }
+    // Exclusive access to shm segment obained.
+
+    if (header->msg_count == 0) {
+        // There are no messages to be read => release lock and return NULL.
+        expected = invoker_pid;
+        while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, SHM_SEGMENT_UNLOCKED)) {
+            expected = invoker_pid;
+        }
+        return NULL;
+    }
+
+
+    /*
+     * Calcuate the offset of the oldest message in the buffer.
+     *
+     * TODO: the oldest message might be one sent by invoker_pid itself, so may
+     * need to advance value pointed to by oldest by +1 until we get to a message
+     * where msg->senderId != invoker_pid.
+     */
+    size_t msg_offset = sizeof(shm_header) + sizeof(msg) * (header->oldest);
+    msg* shared_msg = (msg*) shm_ptr->addr + msg_offset;
+    // Make a copy of the message in local memory for safety and to free space
+    // in the shared memory segment.
+    msg* local_msg = malloc(sizeof(*local_msg));
+    if (local_msg == NULL) {
+        /* Ugh, out of memory */
+        printf("[ERROR] could not malloc memory for local_msg when copying from shared_msg read from shared memory\n");
+        return NULL;
+    }
+    local_msg->senderId = shared_msg->senderId; // Need to copy?
+    local_msg->rcvrId = shared_msg->rcvrId; // Need to copy?
+    // Copy the payload to the local msg.
+    strncpy(local_msg->payload, shared_msg->payload, MAX_PAYLOAD_SIZE);
+
+    /*
+     * Set flag that indicates that shared_msg was read and is no longer needed.
+     *
+     * TODO for now we can just increment shm_header->oldest, but this WON'T WORK
+     * if shm_header->oldest is a message sent by invoker_pid and we therefore
+     * 'proceed' more recent messages (see note above).
+     */
+    header->oldest = header->oldest + 1 % BUFFER_MSG_CAPACITY;
+    // We consumed a message, so decrease the count of messages in the buffer.
+    header->msg_count--;
+
+
     // Unlock exclusive access to shared memory segment.
     expected = invoker_pid;
     while(!atomic_compare_exchange_weak(&(header->pIdOfCurrent), &expected, SHM_SEGMENT_UNLOCKED)) {
@@ -366,48 +492,27 @@ msg* recv(int senderId) {
     }
     msg* m = fetch_msg(entry, senderId);
     return m;
-}
+}*/
 
-/* maruf recv
-msg *recv(int senderId){
-    
-    char *identifier = malloc(2*INT_AS_STR_MAX_CHARS+1);
-    // Get own pid from cache or update cache if pid not previously read.
+
+
+//* maruf recv
+/*msg *recv(int senderId){
     int receiverId = get_invoker_pid();
 
-    sprintf(identifier, "/%d%d", senderId, receiverId);
+    char * identifier = get_shm_id_for_processes(senderId,receiverId);
+    // Get own pid from cache or update cache if pid not previously read.
+    shm_dict_entry *entry = find_shm_dict_entry_for_shm_segment(senderId, receiverId);
 
-    shm_dict_entry *entry = malloc(sizeof(*entry));
-    HASH_FIND_STR(shm_dict, identifier, entry);
-
-    // If a shared memory segment already exists with this key, return it; otherwise create a new one for this key and return that.
-     int ShmID = shmget(identifier, sizeof(shm_header) + sizeof(msg) * BUFFER_MSG_CAPACITY, IPC_CREAT);
-     if (ShmID >0) {
+    if (entry == NULL) {
+        int ShmID = shmget(identifier, sizeof(shm_header) + sizeof(msg) * BUFFER_MSG_CAPACITY, IPC_EXCL | 0666);
+        if (ShmID >0) {
           printf("shared memory exist and found \n");
-          char *data;
-
-          data = shmat(ShmID, (void *)0, 0);
-          if (data == NULL)
-                perror("shmat");
-          else
-              printf("%s",data);
-
-     }
-     else{
+        }
+        else{
           printf("shared memory does not exist\n");
           //MAYBE WE ALLOCATE NEW MEMORY BLOCK?
+        }
+    }
+}*/
 
-     }
-     
-//    if(entry == NULL) {
-//        // shared memory does not exist
-//        printf("the shared memory does not exist");
-//        return NULL;
-//    }
-//    else{
-//        // read from the shared memory
-//        printf("shared memory found");
-//    }
-     
-}
-*/
