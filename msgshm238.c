@@ -229,7 +229,17 @@ int create_shared_mem_segment(int pid1, int pid2) {
     if (fd == -1) {
         printf("Error creating new shared memory segment.\n");
         // Return error code letting caller now that segment could not be created.
+        int id = shmget(get_shm_id_for_processes(pid1, get_invoker_pid()), sizeof(shm_header) + sizeof(msg) * BUFFER_MSG_CAPACITY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH | IPC_CREAT);
+
+        if(id != -1){
+                printf("success!! we got the id for already created shared mem\n");
+                shm_header  *header = (shm_header *)shmat(id, 0, 0);
+                
+                return 0;
+            }
+            
         return -1;
+          	
     } else {
         // Pointer to starting location of new shared memory segment.
         void *addr;
@@ -288,17 +298,17 @@ void send(char * payload, int receiverId) {
     put_msg(entry, receiverId, payload);
 }
 
-//msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
+msg* fetch_msg(shm_dict_entry* shm_ptr, int senderId) {
 
 // I changed the prototype [MARUF]
-msg* fetch_msg(shm_header* header, int senderId) {
+//msg* fetch_msg(shm_header* header, int senderId) {
 
     int expected;
     // Read the header which resides at the front of the shared memory segment.
 
     //******* header is passed so so need
 
-    //shm_header * header = (shm_header *)shm_ptr->addr;
+    shm_header * header = (shm_header *)shm_ptr->addr;
 
     // Spin lock -- wait for exclusive access.
     expected = SHM_SEGMENT_UNLOCKED;
@@ -383,17 +393,7 @@ msg* recv(int senderId) {
         if (created != 0) {
             // TODO error handling
             printf("[ERROR] create_shared_mem_segment(int,int) returned error code %d. Memory segment not created.\n", created);
-            int id = shmget(get_shm_id_for_processes(senderId, get_invoker_pid()), sizeof(shm_header) + sizeof(msg) * BUFFER_MSG_CAPACITY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH | IPC_CREAT);
-
-            if(id != -1){
-                printf("success!! we got the id for already created shared mem\n");
-                shm_header  *header = (shm_header *)shmat(id, 0, 0);
-                msg * m = fetch_msg(header, senderId);
-                return m;
-            }
-            else{
-               return NULL;
-            }
+            
         }
         // As the shm segment has now been created, there should now be a corresponding entry in the map.
         // Fetch it as we need it for fetch_msg below.
